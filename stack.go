@@ -50,6 +50,13 @@ func allFunctions(types []reflect.Type) error {
 	return nil
 }
 
+type dep interface {
+	// Split should separate function outputs. First array
+	// provides indices of arguments which will be passed to the next function.
+	// Second array holds indices of arguments which are treated specially.
+	Split([]reflect.Type) ([]int, []int)
+}
+
 func SafeStack(steps ...interface{}) (interface{}, error) {
 	functions := types(steps)
 	if err := allFunctions(functions); err != nil {

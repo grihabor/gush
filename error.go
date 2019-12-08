@@ -11,38 +11,38 @@ func isError(t reflect.Type) bool {
 	return t.Implements(errorInterface)
 }
 
-func canChainWithError(fn1 reflect.Type, fn2 reflect.Type) error {
-	lastArg := fn1.Out(fn1.NumOut() - 1)
-	if !isError(lastArg) {
-		return fmt.Errorf("first function must return error as the last argument")
-	}
-
-	if fn1.NumOut()-1 != fn2.NumIn() {
+func canChainWithError(args Args, fn1 reflect.Type, fn2 reflect.Type) error {
+	fn1OutIndices := args.OutIndices(fn1)
+	if len(fn1OutIndices) != fn2.NumIn() {
 		return fmt.Errorf(
-			"first function returns %d arguments and error but second function takes %d arguments",
-			fn1.NumOut()-1, fn2.NumIn(),
+			"first function propagates %d of %d output args but second function takes %d args",
+			len(fn1OutIndices), fn1.NumOut(), fn2.NumIn(),
 		)
 	}
-
 	for i := 0; i < fn2.NumIn(); i++ {
-		outKind := fn1.Out(i).Kind()
+		outKind := fn1.Out(fn1OutIndices[i]).Kind()
 		inKind := fn2.In(i).Kind()
 		if outKind != inKind {
-			return fmt.Errorf("arg #%d: %s != %s", i, outKind, inKind)
+			return fmt.Errorf("argument mismatch at index %d: %s != %s", i, outKind, inKind)
 		}
 	}
 	return nil
 }
 
-func CanChainWithError(steps ...interface{}) error {
-	fn := types(steps)
-	for i := 0; i < len(steps)-1; i++ {
+func CanChainWithError(args Args, functions ...interface{}) error {
+	fnTypes := types(functions)
+	for _, fnType := range fnTypes {
+		if err := args.CheckSpecialArgs(fnType); err != nil {
+			return fmt.Errorf("failed to check special args: %w", err)
+		}
+	}
+	for i := 0; i < len(functions)-1; i++ {
 		idx1, idx2 := i, i+1
-		err := canChainWithError(fn[idx1], fn[idx2])
+		err := canChainWithError(args, fnTypes[idx1], fnTypes[idx2])
 		if err != nil {
 			return fmt.Errorf(
 				"failed to chain with error %v at index %d and %v at index %d: %w",
-				fn[idx1], idx1, fn[idx2], idx2, err,
+				fnTypes[idx1], idx1, fnTypes[idx2], idx2, err,
 			)
 		}
 	}
@@ -51,27 +51,49 @@ func CanChainWithError(steps ...interface{}) error {
 
 type LastArgError struct{}
 
-func (r LastArgError) Stack(functions ...interface{}) (interface{}, error) {
-	return SafeStack(functions...)
+func (r LastArgError) OutIndices(fn reflect.Type) []int {
+	n := fn.NumOut() - 1
+	indices := make([]int, n)
+	for i := 0; i < n; i++ {
+		indices[i] = i
+	}
+	return indices
 }
 
-func (r LastArgError) Chain(functions ...interface{}) (interface{}, error) {
+func (r LastArgError) CheckSpecialArgs(fn reflect.Type) error {
+	if fn.NumOut() < 1 {
+		return fmt.Errorf("last returned argument must be an error, got %v", fn)
+	}
+	lastArg := fn.Out(fn.NumOut() - 1)
+	if !isError(lastArg) {
+		return fmt.Errorf("last returned argument must be an error, got %v", fn)
+	}
+	return nil
+}
+
+func (r LastArgError) Stack(functions ...interface{}) (interface{}, error) {
 	return SafeStackWithError(functions...)
 }
 
-func ChainWithError(steps ...interface{}) interface{} {
-	fn, err := SafeChainWithError(steps...)
+func (r LastArgError) Chain(functions ...interface{}) (interface{}, error) {
+	return SafeChainWithError(r, functions...)
+}
+
+func ChainWithError(args Args, steps ...interface{}) interface{} {
+	fn, err := SafeChainWithError(args, steps...)
 	if err != nil {
 		panic(err.Error())
 	}
 	return fn
 }
 
-func SafeChainWithError(steps ...interface{}) (interface{}, error) {
-	if len(steps) < 2 {
-		return nil, fmt.Errorf("chain with error can only work with 2 functions or more, got %v", steps)
-	}
-	err := CanChainWithError(steps...)
+type Args interface {
+	CheckSpecialArgs(fn reflect.Type) error
+	OutIndices(fn reflect.Type) []int
+}
+
+func SafeChainWithError(args Args, steps ...interface{}) (interface{}, error) {
+	err := CanChainWithError(args, steps...)
 	if err != nil {
 		return nil, fmt.Errorf("given functions can't be chained with error: %w", err)
 	}

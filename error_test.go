@@ -9,14 +9,16 @@ import (
 
 func TestCanChainWithError_True(t *testing.T) {
 	err := CanChainWithError(
+		LastArgError{},
 		func() (int, float64, error) { return 0, 0, nil },
-		func(int, float64) {},
+		func(int, float64) error { return nil },
 	)
 	assert.NoError(t, err)
 }
 
 func TestCanChainWithError_False(t *testing.T) {
 	err := CanChainWithError(
+		LastArgError{},
 		func() (int, float64) { return 0, 0 },
 		func(int, float64) {},
 	)
@@ -25,6 +27,7 @@ func TestCanChainWithError_False(t *testing.T) {
 
 func TestCanChainWithError_Multiple(t *testing.T) {
 	err := CanChainWithError(
+		LastArgError{},
 		func() (int, float64, error) { return 0, 0, nil },
 		func(int, float64) error { return nil },
 		func() error { return nil },
@@ -34,6 +37,7 @@ func TestCanChainWithError_Multiple(t *testing.T) {
 
 func TestChainWithError(t *testing.T) {
 	fn, err := SafeChainWithError(
+		LastArgError{},
 		func(a, b int) (float64, float64, error) { return float64(a), float64(b), nil },
 		func(a, b float64) (float64, error) { return a / b, nil },
 		func(c float64) (int, error) { return int(c), nil },
@@ -48,6 +52,7 @@ func TestChainWithError(t *testing.T) {
 
 func TestChainWithError_PropagateError(t *testing.T) {
 	fn, err := SafeChainWithError(
+		LastArgError{},
 		func(a, b int) (float64, float64, error) { return float64(a), float64(b), fmt.Errorf("fail") },
 		func(a, b float64) (float64, error) { return a / b, nil },
 		func(c float64) (int, error) { return int(c), nil },

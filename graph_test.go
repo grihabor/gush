@@ -86,3 +86,31 @@ func TestNewGraph_MultipleOutputArgs(t *testing.T) {
 	assert.Equal(t, float64(26), x)
 	assert.Equal(t, float64(26), y)
 }
+
+/*
+func TestNewGraph_ReturnOnError(t *testing.T) {
+	gb := builder.NewGraphBuilder()
+
+	ab := func() (int, float64) { return 13, 5.5 }
+	c := func() float32 { return 7.5 }
+	gb.Node(func(a int, b float64, c float32) float64 {
+		return float64(a) + b + float64(c)
+	}).Inputs(ab, c)
+	gb.Node(func(c float32, a int, b float64) float64 {
+		return float64(a) + b + float64(c)
+	}).Inputs(c, ab)
+
+	g, err := gb.Build()
+	if !assert.NoError(t, err) {
+		return
+	}
+	fn, err := SafeCompile(g, LastArgError{})
+	if !assert.NoError(t, err) {
+		return
+	}
+	fun := fn.(func() (float64, float64))
+	x, y := fun()
+	assert.Equal(t, float64(26), x)
+	assert.Equal(t, float64(26), y)
+}
+*/
