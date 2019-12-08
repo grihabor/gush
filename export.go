@@ -1,6 +1,6 @@
 package compose
 
-import "a.yandex-team.ru/strm/plgo/pkg/compose/builder"
+import "github.com/grihabor/gush/builder"
 
 type (
 	GraphBuilder builder.GraphBuilder
