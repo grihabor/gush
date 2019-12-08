@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"a.yandex-team.ru/strm/plgo/pkg/compose/builder"
+	"github.com/grihabor/gush/builder"
 )
 
 func TestNewGraph_DonorCalledOnce(t *testing.T) {
