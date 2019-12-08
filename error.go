@@ -49,35 +49,7 @@ func CanChainWithError(args Args, functions ...interface{}) error {
 	return nil
 }
 
-type LastArgError struct{}
-
-func (r LastArgError) OutIndices(fn reflect.Type) []int {
-	n := fn.NumOut() - 1
-	indices := make([]int, n)
-	for i := 0; i < n; i++ {
-		indices[i] = i
-	}
-	return indices
-}
-
-func (r LastArgError) CheckSpecialArgs(fn reflect.Type) error {
-	if fn.NumOut() < 1 {
-		return fmt.Errorf("last returned argument must be an error, got %v", fn)
-	}
-	lastArg := fn.Out(fn.NumOut() - 1)
-	if !isError(lastArg) {
-		return fmt.Errorf("last returned argument must be an error, got %v", fn)
-	}
-	return nil
-}
-
-func (r LastArgError) Stack(functions ...interface{}) (interface{}, error) {
-	return SafeStackWithError(functions...)
-}
-
-func (r LastArgError) Chain(functions ...interface{}) (interface{}, error) {
-	return SafeChainWithError(r, functions...)
-}
+type Call func(values []reflect.Value) ([]reflect.Value, bool)
 
 func ChainWithError(args Args, steps ...interface{}) interface{} {
 	fn, err := SafeChainWithError(args, steps...)
@@ -90,20 +62,18 @@ func ChainWithError(args Args, steps ...interface{}) interface{} {
 type Args interface {
 	CheckSpecialArgs(fn reflect.Type) error
 	OutIndices(fn reflect.Type) []int
+	BuildCall(fn interface{}) Call
+	DataOk(data interface{}) bool
 }
 
-func SafeChainWithError(args Args, steps ...interface{}) (interface{}, error) {
-	err := CanChainWithError(args, steps...)
+func SafeChainWithError(args Args, functions ...interface{}) (interface{}, error) {
+	err := CanChainWithError(args, functions...)
 	if err != nil {
 		return nil, fmt.Errorf("given functions can't be chained with error: %w", err)
 	}
 
-	first := reflect.TypeOf(steps[0])
-	last := reflect.TypeOf(steps[len(steps)-1])
-	lastLastArg := last.Out(last.NumOut() - 1)
-	if !isError(lastLastArg) {
-		return nil, fmt.Errorf("last function must return an error as it's last argument, got %v", last)
-	}
+	first := reflect.TypeOf(functions[0])
+	last := reflect.TypeOf(functions[len(functions)-1])
 
 	inFirst, err := in(first)
 	if err != nil {
@@ -116,30 +86,36 @@ func SafeChainWithError(args Args, steps ...interface{}) (interface{}, error) {
 	resultFuncType := reflect.FuncOf(inFirst, outLast, false)
 
 	// precompute calls to save time during execution
-	calls := make([]func(in []reflect.Value) []reflect.Value, 0)
-	for i := 0; i < len(steps); i++ {
-		calls = append(calls, reflect.ValueOf(steps[i]).Call)
+	calls := make([]func(values []reflect.Value) ([]reflect.Value), len(functions))
+	postprocessCalls := make([]Call, len(functions))
+	for _, fn := range functions {
+		calls = append(calls, func(values []reflect.Value) ([]reflect.Value) {
+			return  reflect.ValueOf(fn).Call(values)
+		})
+		postprocessCalls = append(postprocessCalls, args.BuildCall(fn))
 	}
 
 	// precompute empty result for the case when err != nil
-	emptyResult := make([]reflect.Value, 0, len(calls))
+	emptyResult := make([]reflect.Value, 0, len(postprocessCalls))
 	for i := 0; i < last.NumOut()-1; i++ {
 		emptyResult = append(emptyResult, reflect.New(last.Out(i)).Elem())
 	}
 
 	// build the resulting function
-	return reflect.MakeFunc(resultFuncType, func(args []reflect.Value) []reflect.Value {
-		var err reflect.Value
-		for _, call := range calls {
-			args = call(args)
-			err = args[len(args)-1]
-			if err.Interface() != nil {
-				result := make([]reflect.Value, len(emptyResult))
-				copy(result, emptyResult)
-				return append(emptyResult, err)
+	return reflect.MakeFunc(resultFuncType, func(values []reflect.Value) []reflect.Value {
+		nextInputs := values
+		var outputs []reflect.Value
+		var ok bool
+		for i, postprocess := range postprocessCalls {
+			outputs = calls[i](nextInputs)
+			nextInputs, ok = postprocess(values)
+			if ok {
+				continue
 			}
-			args = args[:len(args)-1]
+			result := make([]reflect.Value, len(emptyResult))
+			copy(result, emptyResult)
+			return nextInputs
 		}
-		return append(args, err)
+		return outputs
 	}).Interface(), nil
 }
